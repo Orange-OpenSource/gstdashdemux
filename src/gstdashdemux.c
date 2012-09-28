@@ -392,7 +392,6 @@ gst_dash_demux_src_event (GstPad * pad, GstEvent * event)
           GST_TIME_ARGS (stop));
 
       GST_MPD_CLIENT_LOCK (demux->client);
-      /* select stream TODO: support multiple streams */
       stream =
           g_list_nth_data (demux->client->active_streams,
           demux->client->stream_idx);
@@ -535,25 +534,35 @@ gst_dash_demux_sink_event (GstPad * pad, GstEvent * event)
       gst_buffer_unref (demux->playlist);
       demux->playlist = NULL;
 
-      /* Select first adaptation set, first representation and first fragment
-       * TODO: support for multiple adaptation sets */
-      if (!gst_mpd_client_setup_streaming (demux->client, GST_STREAM_VIDEO)) {
+      if (!gst_mpd_client_setup_streaming (demux->client, GST_STREAM_VIDEO, "")) {
         GST_ELEMENT_ERROR (demux, STREAM, DECODE,
             ("Incompatible manifest file."), (NULL));
         return FALSE;
       }
 
-      if (gst_mpdparser_get_nb_adaptationSet (demux->client) > 1)
-        if (!gst_mpd_client_setup_streaming (demux->client, GST_STREAM_AUDIO))
-          GST_INFO_OBJECT (demux, "No audio adaptation set found");
+      guint nb_audio =
+          gst_mpdparser_get_nb_audio_adapt_set (demux->client->
+          cur_period->AdaptationSets);
+      GST_INFO_OBJECT (demux, "Number of language is=%d", nb_audio);
+      if (nb_audio == 0)
+        nb_audio = 1;
+      GList *listLang = NULL;
+      gst_mpdparser_get_list_of_audio_language (&listLang,
+          demux->client->cur_period->AdaptationSets);
+      guint i = 0;
+      for (i = 0; i < nb_audio; i++) {
+        gchar *lang = (gchar *) g_list_nth_data (listLang, i);
+        if (gst_mpdparser_get_nb_adaptationSet (demux->client) > 1)
+          if (!gst_mpd_client_setup_streaming (demux->client, GST_STREAM_AUDIO,
+                  lang))
+            GST_INFO_OBJECT (demux, "No audio adaptation set found");
 
-      if (gst_mpdparser_get_nb_adaptationSet (demux->client) > 2)
-        if (!gst_mpd_client_setup_streaming (demux->client,
-                GST_STREAM_APPLICATION)) {
-          GST_INFO_OBJECT (demux, "No application adaptation set found");
-        }
-
-      demux->client->stream_idx = 0;
+        if (gst_mpdparser_get_nb_adaptationSet (demux->client) > nb_audio)
+          if (!gst_mpd_client_setup_streaming (demux->client,
+                  GST_STREAM_APPLICATION, lang)) {
+            GST_INFO_OBJECT (demux, "No application adaptation set found");
+          }
+      }
 
       /* Send duration message */
       if (!gst_mpd_client_is_live (demux->client)) {
@@ -700,7 +709,7 @@ gst_dash_demux_stop (GstDashDemux * demux)
 static void
 switch_pads (GstDashDemux * demux, guint nb_adaptation_set)
 {
-  GstPad *oldpad[3];
+  GstPad *oldpad[MAX_LANGUAGES];
   guint i = 0;
   while (i < nb_adaptation_set) {
     oldpad[i] = demux->srcpad[i];
@@ -785,6 +794,7 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   GstFlowReturn ret;
   GstBufferList *buffer_list;
   guint nb_adaptation_set = 0;
+  GstActiveStream *stream;
   /* Loop for the source pad task.
    * 
    * Startup: 
@@ -836,6 +846,7 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   guint i = 0;
   for (i = 0; i < nb_adaptation_set; i++) {
     GstFragment *fragment = g_list_nth_data (listfragment, i);
+    stream = gst_mpdparser_get_active_stream_by_index (demux->client, i);
     if (demux->need_segment) {
       GstClockTime start = fragment->start_time + demux->position_shift;
       /* And send a newsegment */
@@ -852,7 +863,7 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
     buffer_list = gst_fragment_get_buffer_list (fragment);
     g_object_unref (fragment);
     ret = gst_pad_push_list (demux->srcpad[i], buffer_list);
-    if (ret != GST_FLOW_OK)
+    if ((ret != GST_FLOW_OK) && (stream->mimeType == GST_STREAM_VIDEO))
       goto error_pushing;
   }
   if (GST_STATE (demux) == GST_STATE_PLAYING) {
@@ -899,7 +910,7 @@ gst_dash_demux_reset (GstDashDemux * demux, gboolean dispose)
   demux->cancelled = FALSE;
 
   guint i = 0;
-  for (i = 0; i < 3; i++)
+  for (i = 0; i < MAX_LANGUAGES; i++)
     if (demux->input_caps[i]) {
       gst_caps_unref (demux->input_caps[i]);
       demux->input_caps[i] = NULL;
@@ -1059,13 +1070,11 @@ gst_dash_demux_schedule (GstDashDemux * demux)
 static gboolean
 gst_dash_demux_switch_playlist (GstDashDemux * demux, guint64 bitrate)
 {
-  /* TODO: support multiple streams */
   GstActiveStream *stream = NULL;
   GList *rep_list;
   gint new_index;
   gboolean ret = FALSE;
 
-  /* select stream TODO: support multiple streams */
   guint i = 0;
   while (i < gst_mpdparser_get_nb_active_stream (demux->client)) {
     if (demux->client->active_streams)
@@ -1252,6 +1261,28 @@ gst_dash_demux_get_input_caps (GstDashDemux * demux, GstActiveStream * stream)
 }
 
 static gboolean
+need_add_header (GstDashDemux * demux)
+{
+  GstActiveStream *stream;
+  guint stream_idx = 0;
+  gboolean switch_caps = FALSE;
+  while (stream_idx < gst_mpdparser_get_nb_active_stream (demux->client)) {
+    stream =
+        gst_mpdparser_get_active_stream_by_index (demux->client, stream_idx);
+    if (stream == NULL)
+      return FALSE;
+    GstCaps *caps = gst_dash_demux_get_input_caps (demux, stream);
+    if (!demux->input_caps[stream_idx]
+        || !gst_caps_is_equal (caps, demux->input_caps[stream_idx])) {
+      switch_caps = TRUE;
+      break;
+    }
+    stream_idx++;
+  }
+  return switch_caps;
+}
+
+static gboolean
 gst_dash_demux_get_next_fragment (GstDashDemux * demux, gboolean caching)
 {
   GstActiveStream *stream;
@@ -1265,10 +1296,10 @@ gst_dash_demux_get_next_fragment (GstDashDemux * demux, gboolean caching)
   GTimeVal start;
   GstClockTime diff;
   guint64 size_buffer = 0;
-  gboolean switch_pad = FALSE;
 
   g_get_current_time (&start);
   /* support multiple streams */
+  gboolean need_header = need_add_header (demux);
   int stream_idx = 0;
   list_fragment = NULL;
   while (stream_idx < gst_mpdparser_get_nb_active_stream (demux->client)) {
@@ -1299,14 +1330,11 @@ gst_dash_demux_get_next_fragment (GstDashDemux * demux, gboolean caching)
 
     GstCaps *caps = gst_dash_demux_get_input_caps (demux, stream);
 
-    if (!demux->input_caps[stream_idx]
-        || !gst_caps_is_equal (caps, demux->input_caps[stream_idx])
-        || switch_pad) {
+    if (need_header) {
       /* We changed spatial representation */
       gst_caps_replace (&demux->input_caps[stream_idx], caps);
       GST_INFO_OBJECT (demux, "Input source caps: %" GST_PTR_FORMAT,
           demux->input_caps[stream_idx]);
-      switch_pad = TRUE;
       /* We need to fetch a new header */
       if ((header = gst_dash_demux_get_next_header (demux, stream_idx)) == NULL) {
         GST_INFO_OBJECT (demux, "Unable to fetch header");
