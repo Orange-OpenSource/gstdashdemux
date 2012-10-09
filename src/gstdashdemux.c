@@ -1069,7 +1069,7 @@ static gboolean
 gst_dash_demux_switch_playlist (GstDashDemux * demux, guint64 bitrate)
 {
   GstActiveStream *stream = NULL;
-  GList *rep_list;
+  GList *rep_list = NULL;
   gint new_index;
   gboolean ret = FALSE;
 
@@ -1083,8 +1083,8 @@ gst_dash_demux_switch_playlist (GstDashDemux * demux, guint64 bitrate)
     /* retrieve representation list */
     if (stream->cur_adapt_set)
       rep_list = stream->cur_adapt_set->Representations;
-    else
-      rep_list = demux->client->cur_period->Representations;
+    if (!rep_list)
+      return FALSE;
 
     /* get representation index with current max_bandwidth */
     new_index =
@@ -1119,7 +1119,7 @@ gst_dash_demux_get_next_header (GstDashDemux * demux, guint stream_idx)
 
   if (!gst_mpd_client_get_next_header (demux->client, &initializationURL,
           stream_idx))
-    return FALSE;
+    return NULL;
 
   if (strncmp (initializationURL, "http://", 7) != 0) {
     next_header_uri =
@@ -1175,6 +1175,8 @@ gst_dash_demux_prepend_header (GstDashDemux * demux,
 const gchar *
 gst_mpd_mimetype_to_caps (const gchar * mimeType)
 {
+  if (mimeType == NULL)
+    return NULL;
   if (strcmp (mimeType, "video/mp2t") == 0) {
     return "video/mpegts";
   } else if (strcmp (mimeType, "video/mp4") == 0) {
@@ -1192,17 +1194,24 @@ gst_dash_demux_get_video_input_caps (GstDashDemux * demux,
   guint width, height;
   const gchar *mimeType;
   GstCaps *caps = NULL;
+  GstRepresentationBaseType *RepresentationBase;
   if (stream == NULL)
     return NULL;
-  width =
-      gst_mpd_client_get_width_of_video_current_stream (demux->client, stream);
-  height =
-      gst_mpd_client_get_height_of_video_current_stream (demux->client, stream);
-  if (!stream->cur_representation->RepresentationBase->mimeType)
+
+  if (stream->cur_representation->RepresentationBase) {
+    RepresentationBase = stream->cur_representation->RepresentationBase;
+  } else {
+    RepresentationBase = stream->cur_adapt_set->RepresentationBase;
+  }
+  if (RepresentationBase == NULL)
     return NULL;
+
+  width =
+      gst_mpd_client_get_width_of_video_current_stream (RepresentationBase);
+  height =
+      gst_mpd_client_get_height_of_video_current_stream (RepresentationBase);
   mimeType =
-      gst_mpd_mimetype_to_caps (stream->cur_representation->
-      RepresentationBase->mimeType);
+      gst_mpd_mimetype_to_caps (RepresentationBase->mimeType);
   caps =
       gst_caps_new_simple (mimeType, "width", G_TYPE_INT, width, "height",
       G_TYPE_INT, height, NULL);
@@ -1216,14 +1225,24 @@ gst_dash_demux_get_audio_input_caps (GstDashDemux * demux,
   guint rate, channels;
   const gchar *mimeType;
   GstCaps *caps = NULL;
+  GstRepresentationBaseType *RepresentationBase;
+  if (stream == NULL)
+    return NULL;
+
+  if (stream->cur_representation->RepresentationBase) {
+    RepresentationBase = stream->cur_representation->RepresentationBase;
+  } else {
+    RepresentationBase = stream->cur_adapt_set->RepresentationBase;
+  }
+  if (RepresentationBase == NULL)
+    return NULL;
+
   channels =
-      gst_mpd_client_get_num_channels_of_audio_current_stream (demux->client,
-      stream);
+      gst_mpd_client_get_num_channels_of_audio_current_stream (RepresentationBase);
   rate =
-      gst_mpd_client_get_rate_of_audio_current_stream (demux->client, stream);
+      gst_mpd_client_get_rate_of_audio_current_stream (RepresentationBase);
   mimeType =
-      gst_mpd_mimetype_to_caps (stream->cur_representation->
-      RepresentationBase->mimeType);
+      gst_mpd_mimetype_to_caps (RepresentationBase->mimeType);
   caps =
       gst_caps_new_simple (mimeType, "channels", G_TYPE_INT, channels, "rate",
       G_TYPE_INT, rate, NULL);
@@ -1236,9 +1255,20 @@ gst_dash_demux_get_application_input_caps (GstDashDemux * demux,
 {
   const gchar *mimeType;
   GstCaps *caps = NULL;
+  GstRepresentationBaseType *RepresentationBase;
+  if (stream == NULL)
+    return NULL;
+
+  if (stream->cur_representation->RepresentationBase) {
+    RepresentationBase = stream->cur_representation->RepresentationBase;
+  } else {
+    RepresentationBase = stream->cur_adapt_set->RepresentationBase;
+  }
+  if (RepresentationBase == NULL)
+    return NULL;
+
   mimeType =
-      gst_mpd_mimetype_to_caps (stream->cur_representation->
-      RepresentationBase->mimeType);
+      gst_mpd_mimetype_to_caps (RepresentationBase->mimeType);
   caps = gst_caps_new_simple (mimeType, NULL);
   return caps;
 }
@@ -1336,15 +1366,14 @@ gst_dash_demux_get_next_fragment (GstDashDemux * demux, gboolean caching)
       /* We need to fetch a new header */
       if ((header = gst_dash_demux_get_next_header (demux, stream_idx)) == NULL) {
         GST_INFO_OBJECT (demux, "Unable to fetch header");
-        return FALSE;
+      } else {
+        /* Replace fragment with a new one including the header */
+        GstFragment *new_fragment =
+            gst_dash_demux_prepend_header (demux, download, header);
+        g_object_unref (header);
+        g_object_unref (download);
+        download = new_fragment;
       }
-
-      /* Replace fragment with a new one including the header */
-      GstFragment *new_fragment =
-          gst_dash_demux_prepend_header (demux, download, header);
-      g_object_unref (header);
-      g_object_unref (download);
-      download = new_fragment;
     } else
       gst_caps_unref (caps);
 
