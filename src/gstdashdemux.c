@@ -1272,7 +1272,9 @@ gst_dash_demux_select_representations (GstDashDemux * demux, guint64 bitrate)
 static GstFragment *
 gst_dash_demux_get_next_header (GstDashDemux * demux, guint stream_idx)
 {
-  const gchar *next_header_uri, *initializationURL;
+  const gchar *initializationURL;
+  gchar *next_header_uri;
+  GstFragment *fragment;
 
   if (!gst_mpd_client_get_next_header (demux->client, &initializationURL,
           stream_idx))
@@ -1288,7 +1290,10 @@ gst_dash_demux_get_next_header (GstDashDemux * demux, guint stream_idx)
 
   GST_INFO_OBJECT (demux, "Fetching header %s", next_header_uri);
 
-  return gst_uri_downloader_fetch_uri (demux->downloader, next_header_uri);
+  fragment = gst_uri_downloader_fetch_uri (demux->downloader, next_header_uri);
+  g_free (next_header_uri);
+
+  return fragment;
 }
 
 static GstBufferListItem
@@ -1445,6 +1450,7 @@ static gboolean
 need_add_header (GstDashDemux * demux)
 {
   GstActiveStream *stream;
+  GstCaps *caps;
   guint stream_idx = 0;
   gboolean switch_caps = FALSE;
   while (stream_idx < gst_mpdparser_get_nb_active_stream (demux->client)) {
@@ -1452,12 +1458,14 @@ need_add_header (GstDashDemux * demux)
         gst_mpdparser_get_active_stream_by_index (demux->client, stream_idx);
     if (stream == NULL)
       return FALSE;
-    GstCaps *caps = gst_dash_demux_get_input_caps (demux, stream);
+    caps = gst_dash_demux_get_input_caps (demux, stream);
     if (!demux->input_caps[stream_idx]
         || !gst_caps_is_equal (caps, demux->input_caps[stream_idx])) {
       switch_caps = TRUE;
+      gst_caps_unref (caps);
       break;
     }
+    gst_caps_unref (caps);
     stream_idx++;
   }
   return switch_caps;
