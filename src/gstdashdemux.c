@@ -1486,7 +1486,7 @@ gst_dash_demux_get_next_fragment_set (GstDashDemux * demux)
   GstActiveStream *stream;
   GstFragment *download, *header;
   GList *fragment_set;
-  const gchar *next_fragment_uri;
+  gchar *next_fragment_uri;
   GstClockTime duration;
   GstClockTime timestamp;
   gboolean discont;
@@ -1521,6 +1521,7 @@ gst_dash_demux_get_next_fragment_set (GstDashDemux * demux)
 
     download = gst_uri_downloader_fetch_uri (demux->downloader,
         next_fragment_uri);
+    g_free (next_fragment_uri);
 
     if (download == NULL)
       return FALSE;
