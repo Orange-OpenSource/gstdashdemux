@@ -355,6 +355,7 @@ gst_dash_demux_init (GstDashDemux * demux, GstDashDemuxClass * klass)
       gst_task_create ((GstTaskFunction) gst_dash_demux_stream_loop, demux);
   gst_task_set_lock (demux->stream_task, &demux->stream_lock);
   demux->stream_timed_lock = g_mutex_new ();
+  demux->reset_scheduler = TRUE;
 }
 
 static void
@@ -986,7 +987,13 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   g_list_free (listfragment);
   if (GST_STATE (demux) == GST_STATE_PLAYING) {
     /* Wait for the duration of a fragment before resuming this task */
-    g_get_current_time (&demux->next_push);
+    if (demux->reset_scheduler) {
+      /* reset scheduler, starting from current time */
+      g_get_current_time (&demux->next_push);
+      GST_DEBUG_OBJECT (demux, "Reset scheduler at %s",
+          g_time_val_to_iso8601 (&demux->next_push));
+      demux->reset_scheduler = FALSE;
+    }
     g_time_val_add (&demux->next_push,
         gst_mpd_client_get_target_duration (demux->client)
         / GST_SECOND * G_USEC_PER_SEC);
@@ -1193,6 +1200,7 @@ gst_dash_demux_pause_stream_task (GstDashDemux * demux)
   GST_TASK_SIGNAL (demux->stream_task);
   /* Pause it explicitly (if it was not in the COND) */
   gst_task_pause (demux->stream_task);
+  demux->reset_scheduler = TRUE;
 }
 
 static void

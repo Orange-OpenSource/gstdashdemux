@@ -81,6 +81,7 @@ struct _GstDashDemux
   GStaticRecMutex stream_lock;
   GMutex *stream_timed_lock;
   GTimeVal next_push;           /* Time of the next push */
+  gboolean reset_scheduler;     /* flag to force a scheduler reset */
 
   /* Download task */
   GstTask *download_task;
