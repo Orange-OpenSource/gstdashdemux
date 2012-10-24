@@ -77,7 +77,8 @@ static gint convert_to_millisecs (gint decimals, gint pos);
 static int strncmp_ext (const char *s1, const char *s2);
 static GstStreamPeriod *gst_mpdparser_get_stream_period (GstMpdClient * client);
 static gchar *gst_mpdparser_parse_baseURL (GstMpdClient * client);
-static gchar *gst_mpdparser_get_mediaURL (GstSegmentURLNode *segmentURL);
+static gchar *gst_mpdparser_get_segmentURL_for_range (gchar *url, GstRange *range);
+static gchar *gst_mpdparser_get_mediaURL (GstMpdClient * client, GstSegmentURLNode *segmentURL);
 static gchar *gst_mpdparser_get_initializationURL (GstURLType *InitializationURL);
 static gchar *gst_mpdparser_build_URL_from_template (const gchar *url_template, const gchar *id, guint number, guint bandwidth, guint time);
 static gboolean gst_mpd_client_add_media_segment (GstActiveStream *stream, GstSegmentURLNode *url_node, guint number, guint start, GstClockTime start_time, GstClockTime duration);
@@ -2157,43 +2158,43 @@ gst_mpdparser_free_active_stream (GstActiveStream * active_stream)
 }
 
 static gchar *
-gst_mpdparser_get_mediaURL (GstSegmentURLNode *segmentURL)
+gst_mpdparser_get_segmentURL_for_range (gchar *url, GstRange *range)
 {
-  gchar *mediaURL;
+  gchar *segmentURL;
 
-  g_return_val_if_fail (segmentURL != NULL, NULL);
-  g_return_val_if_fail (segmentURL->media != NULL, NULL);
-
-  if (segmentURL->mediaRange) {
-    gchar *range;
-    range = g_strdup_printf ("?range=%llu-%llu", segmentURL->mediaRange->first_byte_pos, segmentURL->mediaRange->last_byte_pos);
-    mediaURL = g_strconcat (segmentURL->media, range, NULL);
-    g_free (range);
+  if (range) {
+    gchar *range_suffix;
+    range_suffix = g_strdup_printf ("?range=%llu-%llu", range->first_byte_pos, range->last_byte_pos);
+    segmentURL = g_strconcat (url, range_suffix, NULL);
+    g_free (range_suffix);
   } else {
-    mediaURL = g_strdup (segmentURL->media);
+    segmentURL = g_strdup (url);
   }
 
-  return mediaURL;
+  return segmentURL;
+}
+
+static gchar *
+gst_mpdparser_get_mediaURL (GstMpdClient *client, GstSegmentURLNode *segmentURL)
+{
+  gchar *url_prefix;
+
+  g_return_val_if_fail (client != NULL, NULL);
+  g_return_val_if_fail (segmentURL != NULL, NULL);
+
+  url_prefix = segmentURL->media ? segmentURL->media : gst_mpdparser_get_baseURL (client);
+  g_return_val_if_fail (url_prefix != NULL, NULL);
+
+  return gst_mpdparser_get_segmentURL_for_range(segmentURL->media, segmentURL->mediaRange);
 }
 
 static gchar *
 gst_mpdparser_get_initializationURL (GstURLType *InitializationURL)
 {
-  gchar *mediaURL;
-
   g_return_val_if_fail (InitializationURL != NULL, NULL);
   g_return_val_if_fail (InitializationURL->sourceURL != NULL, NULL);
 
-  if (InitializationURL->range) {
-    gchar *range;
-    range = g_strdup_printf ("?range=%llu-%llu", InitializationURL->range->first_byte_pos, InitializationURL->range->last_byte_pos);
-    mediaURL = g_strconcat (InitializationURL->sourceURL, range, NULL);
-    g_free (range);
-  } else {
-    mediaURL = g_strdup (InitializationURL->sourceURL);
-  }
-
-  return mediaURL;
+  return gst_mpdparser_get_segmentURL_for_range(InitializationURL->sourceURL, InitializationURL->range);
 }
 
 static gchar *
@@ -2943,7 +2944,7 @@ gst_mpd_client_get_next_fragment (GstMpdClient * client,
   }
 
   if (currentChunk->SegmentURL != NULL) {
-    mediaURL = gst_mpdparser_get_mediaURL (currentChunk->SegmentURL);
+    mediaURL = gst_mpdparser_get_mediaURL (client, currentChunk->SegmentURL);
   } else if (stream->cur_seg_template != NULL) {
     mediaURL = gst_mpdparser_build_URL_from_template (stream->cur_seg_template->media,
         stream->cur_representation->id, currentChunk->number, stream->cur_representation->bandwidth, currentChunk->start);
