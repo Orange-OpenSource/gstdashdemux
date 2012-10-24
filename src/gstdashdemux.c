@@ -224,7 +224,11 @@ gst_dash_demux_dispose (GObject * obj)
   if (demux->stream_task) {
     if (GST_TASK_STATE (demux->stream_task) != GST_TASK_STOPPED) {
       GST_DEBUG_OBJECT (demux, "Leaving streaming task");
-      gst_task_stop (demux->stream_task);
+      g_mutex_lock (&demux->stream_timed_lock);
+      GST_TASK_SIGNAL (demux->stream_task);
+      g_rec_mutex_lock (&demux->stream_lock);
+      g_rec_mutex_unlock (&demux->stream_lock);
+      g_mutex_unlock (&demux->stream_timed_lock);
       gst_task_join (demux->stream_task);
     }
     gst_object_unref (demux->stream_task);
@@ -236,7 +240,11 @@ gst_dash_demux_dispose (GObject * obj)
   if (demux->download_task) {
     if (GST_TASK_STATE (demux->download_task) != GST_TASK_STOPPED) {
       GST_DEBUG_OBJECT (demux, "Leaving download task");
-      gst_task_stop (demux->download_task);
+      g_mutex_lock (&demux->download_timed_lock);
+      GST_TASK_SIGNAL (demux->download_task);
+      g_rec_mutex_lock (&demux->download_lock);
+      g_rec_mutex_unlock (&demux->download_lock);
+      g_mutex_unlock (&demux->download_timed_lock);
       gst_task_join (demux->download_task);
     }
     gst_object_unref (demux->download_task);
