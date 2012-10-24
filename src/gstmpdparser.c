@@ -25,6 +25,7 @@
  */
 
 #include <string.h>
+#include <libxml/parser.h>
 #include "gstfragmented.h"
 #include "gstmpdparser.h"
 
