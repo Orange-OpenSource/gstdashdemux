@@ -549,7 +549,7 @@ gst_dash_demux_src_event (GstPad * pad, GstEvent * event)
       gst_dash_demux_stop (demux);
 
       /* Wait for streaming to finish */
-      g_static_rec_mutex_lock (&demux->stream_lock);
+      g_rec_mutex_lock (&demux->stream_lock);
 
       /* Clear the buffering queue */
       /* FIXME: allow seeking in the buffering queue */
@@ -589,7 +589,7 @@ gst_dash_demux_src_event (GstPad * pad, GstEvent * event)
       demux->cancelled = FALSE;
       gst_dash_demux_resume_download_task (demux);
       gst_dash_demux_resume_stream_task (demux);
-      g_static_rec_mutex_unlock (&demux->stream_lock);
+      g_rec_mutex_unlock (&demux->stream_lock);
 
       return TRUE;
     }
