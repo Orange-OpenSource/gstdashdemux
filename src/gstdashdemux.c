@@ -935,7 +935,7 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
 
   /* Wait until the next scheduled push downstream */
   if (g_cond_timed_wait (GST_TASK_GET_COND (demux->stream_task),
-          demux->stream_timed_lock, &demux->next_push)) {
+          &demux->stream_timed_lock, &demux->next_push)) {
     goto quit;
   }
 
@@ -1137,7 +1137,7 @@ gst_dash_demux_download_loop (GstDashDemux * demux)
 {
   /* Wait until the next scheduled download */
   if (g_cond_timed_wait (GST_TASK_GET_COND (demux->download_task),
-          demux->download_timed_lock, &demux->next_download)) {
+          &demux->download_timed_lock, &demux->next_download)) {
     goto quit;
   }
 
