@@ -581,7 +581,7 @@ gst_dash_demux_src_event (GstPad * pad, GstObject * parent, GstEvent * event)
         stream_idx = 0;
         while (stream_idx < nb_active_stream) {
           gst_pad_push_event (demux->srcpad[stream_idx],
-              gst_event_new_flush_stop ());
+              gst_event_new_flush_stop (TRUE));
           stream_idx++;
         }
       }
