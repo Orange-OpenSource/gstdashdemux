@@ -213,33 +213,8 @@ static void gst_dash_demux_reset (GstDashDemux * demux, gboolean dispose);
 static GstClockTime gst_dash_demux_get_buffering_time (GstDashDemux * demux);
 static float gst_dash_demux_get_buffering_ratio (GstDashDemux * demux);
 
-static void
-_do_init (GType type)
-{
-  GST_DEBUG_CATEGORY_INIT (gst_dash_demux_debug, "dashdemux", 0,
-      "dashdemux element");
-}
-
-GST_BOILERPLATE_FULL (GstDashDemux, gst_dash_demux, GstElement,
-    GST_TYPE_ELEMENT, _do_init);
-
-static void
-gst_dash_demux_base_init (gpointer g_class)
-{
-  GstElementClass *element_class = GST_ELEMENT_CLASS (g_class);
-
-  gst_element_class_add_static_pad_template (element_class, &srctemplate);
-
-  gst_element_class_add_static_pad_template (element_class, &sinktemplate);
-
-  gst_element_class_set_details_simple (element_class,
-      "DASH Demuxer",
-      "Codec/Demuxer",
-      "Dynamic Adaptive Streaming over HTTP demuxer",
-      "David Corvoysier <david.corvoysier@orange.com>\n\
-                Hamid Zakari <hamid.zakari@gmail.com>\n\
-                Gianluca Gennari <gennarone@gmail.com>");
-}
+#define gst_dash_demux_parent_class parent_class
+G_DEFINE_TYPE (GstDashDemux, gst_dash_demux, GST_TYPE_ELEMENT);
 
 static void
 gst_dash_demux_dispose (GObject * obj)
@@ -320,10 +295,28 @@ gst_dash_demux_class_init (GstDashDemuxClass * klass)
 
   gstelement_class->change_state =
       GST_DEBUG_FUNCPTR (gst_dash_demux_change_state);
+
+  gst_gstelement_class_add_pad_template (gstelement_class,
+      gst_static_pad_template_get (&srctemplate));
+
+  gst_gstelement_class_add_pad_template (gstelement_class,
+      gst_static_pad_template_get (&sinktemplate));
+
+  gst_gstelement_class_set_details_simple (gstelement_class,
+      "DASH Demuxer",
+      "Codec/Demuxer",
+      "Dynamic Adaptive Streaming over HTTP demuxer",
+      "David Corvoysier <david.corvoysier@orange.com>\n\
+                Hamid Zakari <hamid.zakari@gmail.com>\n\
+                Gianluca Gennari <gennarone@gmail.com>");
+
+  GST_DEBUG_CATEGORY_INIT (gst_dash_demux_debug, "dashdemux", 0,
+      "dashdemux element");
+
 }
 
 static void
-gst_dash_demux_init (GstDashDemux * demux, GstDashDemuxClass * klass)
+gst_dash_demux_init (GstDashDemux * demux)
 {
   /* sink pad */
   demux->sinkpad = gst_pad_new_from_static_template (&sinktemplate, "sink");
