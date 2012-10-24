@@ -342,14 +342,14 @@ gst_dash_demux_init (GstDashDemux * demux)
       gst_task_new ((GstTaskFunction) gst_dash_demux_download_loop, demux,
       NULL);
   gst_task_set_lock (demux->download_task, &demux->download_lock);
-  demux->download_timed_lock = g_mutex_new ();
+  g_mutex_init (&demux->download_timed_lock);
 
   /* Streaming task */
   g_rec_mutex_init (&demux->stream_lock);
   demux->stream_task =
       gst_task_new ((GstTaskFunction) gst_dash_demux_stream_loop, demux, NULL);
   gst_task_set_lock (demux->stream_task, &demux->stream_lock);
-  demux->stream_timed_lock = g_mutex_new ();
+  g_mutex_init (&demux->stream_timed_lock);
 }
 
 static void
