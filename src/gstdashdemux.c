@@ -228,7 +228,7 @@ gst_dash_demux_dispose (GObject * obj)
       gst_task_join (demux->stream_task);
     }
     gst_object_unref (demux->stream_task);
-    g_static_rec_mutex_free (&demux->stream_lock);
+    g_rec_mutex_clear (&demux->stream_lock);
     demux->stream_task = NULL;
   }
 
@@ -239,7 +239,7 @@ gst_dash_demux_dispose (GObject * obj)
       gst_task_join (demux->download_task);
     }
     gst_object_unref (demux->download_task);
-    g_static_rec_mutex_free (&demux->download_lock);
+    g_rec_mutex_clear (&demux->download_lock);
     demux->download_task = NULL;
   }
 
