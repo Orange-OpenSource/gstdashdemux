@@ -640,7 +640,6 @@ gst_dash_demux_sink_event (GstPad * pad, GstEvent * event)
 
   switch (event->type) {
     case GST_EVENT_EOS:{
-      gchar *manifest;
       GstQuery *query;
       gboolean res;
 
@@ -666,11 +665,9 @@ gst_dash_demux_sink_event (GstPad * pad, GstEvent * event)
       }
       gst_query_unref (query);
 
-      manifest = (gchar *) GST_BUFFER_DATA (demux->manifest);
-      if (manifest == NULL) {
-        GST_WARNING_OBJECT (demux, "Error validating the manifest.");
-      } else if (!gst_mpd_parse (demux->client, manifest,
-              GST_BUFFER_SIZE (demux->manifest))) {
+      GstMapInfo info;
+      if (!gst_buffer_map (demux->manifest, &info, GST_MAP_READ)
+          || !gst_mpd_parse (demux->client, (gchar *) info.data, info.size)) {
         /* In most cases, this will happen if we set a wrong url in the
          * source element and we have received the 404 HTML response instead of
          * the manifest */
@@ -678,6 +675,7 @@ gst_dash_demux_sink_event (GstPad * pad, GstEvent * event)
             (NULL));
         return FALSE;
       }
+      gst_buffer_unmap (demux->manifest, &info);
       gst_buffer_unref (demux->manifest);
       demux->manifest = NULL;
 
