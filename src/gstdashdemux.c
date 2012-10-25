@@ -838,6 +838,8 @@ switch_pads (GstDashDemux * demux, guint nb_adaptation_set)
 {
   GstPad *oldpad[MAX_LANGUAGES];
   guint i = 0;
+  gchar *stream_id;
+
   /* Remember old pads */
   while (i < nb_adaptation_set) {
     oldpad[i] = demux->srcpad[i];
@@ -857,6 +859,14 @@ switch_pads (GstDashDemux * demux, guint nb_adaptation_set)
         GST_DEBUG_FUNCPTR (gst_dash_demux_src_query));
     gst_pad_set_element_private (demux->srcpad[i], demux);
     gst_pad_set_active (demux->srcpad[i], TRUE);
+
+    stream_id =
+        gst_pad_create_stream_id (demux->srcpad[i], GST_ELEMENT_CAST (demux),
+        NULL);
+    gst_pad_push_event (demux->srcpad[i],
+        gst_event_new_stream_start (stream_id));
+    g_free (stream_id);
+
     gst_pad_set_caps (demux->srcpad[i], demux->output_caps[i]);
     gst_element_add_pad (GST_ELEMENT (demux), demux->srcpad[i]);
     i++;
