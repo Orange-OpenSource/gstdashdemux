@@ -942,7 +942,7 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
 {
   GList *listfragment;
   GstFlowReturn ret;
-  GstBufferList *buffer_list;
+  GstBuffer *buffer;
   guint nb_adaptation_set = 0;
   GstActiveStream *stream;
 
@@ -996,9 +996,9 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
     }
 
     GST_DEBUG_OBJECT (demux, "Pushing fragment #%d", fragment->index);
-    buffer_list = gst_fragment_get_buffer_list (fragment);
+    buffer = gst_fragment_get_buffer (fragment);
     g_object_unref (fragment);
-    ret = gst_pad_push_list (demux->srcpad[i], buffer_list);
+    ret = gst_pad_push (demux->srcpad[i], buffer);
     if ((ret != GST_FLOW_OK) && (stream->mimeType == GST_STREAM_VIDEO))
       goto error_pushing;
   }
@@ -1347,17 +1347,6 @@ gst_dash_demux_get_next_header (GstDashDemux * demux, guint stream_idx)
   return fragment;
 }
 
-static gboolean
-gst_dash_demux_add_buffer_cb (GstBuffer ** buffer,
-    guint idx, gpointer user_data)
-{
-  GstFragment *frag = GST_FRAGMENT (user_data);
-  /* This buffer still belongs to the original fragment */
-  /* so we need to increase refcount */
-  gst_fragment_add_buffer (frag, gst_buffer_ref (*buffer));
-  return TRUE;
-}
-
 /* Since we cannot add headers after the chunk has been downloaded, we have to recreate a new fragment */
 static GstFragment *
 gst_dash_demux_prepend_header (GstDashDemux * demux,
@@ -1372,13 +1361,11 @@ gst_dash_demux_prepend_header (GstDashDemux * demux,
   res->index = frag->index;
   res->discontinuous = frag->discontinuous;
 
-  GstBufferList *list;
-  list = gst_fragment_get_buffer_list (header);
-  gst_buffer_list_foreach (list, gst_dash_demux_add_buffer_cb, res);
-  gst_buffer_list_unref (list);
-  list = gst_fragment_get_buffer_list (frag);
-  gst_buffer_list_foreach (list, gst_dash_demux_add_buffer_cb, res);
-  gst_buffer_list_unref (list);
+  GstBuffer *buffer;
+  buffer = gst_fragment_get_buffer (header);
+  gst_fragment_add_buffer (res, buffer);
+  buffer = gst_fragment_get_buffer (frag);
+  gst_fragment_add_buffer (res, buffer);
 
   res->completed = TRUE;
 
@@ -1521,6 +1508,7 @@ gst_dash_demux_get_next_fragment_set (GstDashDemux * demux)
   GTimeVal start;
   GstClockTime diff;
   guint64 size_buffer = 0;
+  GstBuffer *buffer;
 
   g_get_current_time (&start);
   /* Figure out if we will need to switch pads, thus requiring a new
@@ -1580,7 +1568,8 @@ gst_dash_demux_get_next_fragment_set (GstDashDemux * demux)
 
     gst_fragment_set_caps (download, demux->input_caps[stream_idx]);
     fragment_set = g_list_append (fragment_set, download);
-    size_buffer += gst_fragment_get_buffer_size (download);
+    buffer = gst_fragment_get_buffer (download);
+    size_buffer += gst_buffer_get_size (buffer);
     stream_idx++;
   }
   /* Push fragment set into the queue */
