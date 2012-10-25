@@ -904,7 +904,7 @@ needs_pad_switch (GstDashDemux * demux, GList * fragment)
     GstCaps *srccaps = NULL;
     demux->output_caps[i] = gst_fragment_get_caps (newFragment);
     if (G_LIKELY (demux->srcpad[i]))
-      srccaps = gst_pad_get_negotiated_caps (demux->srcpad[i]);
+      srccaps = gst_pad_get_current_caps (demux->srcpad[i]);
     if (G_UNLIKELY (!srccaps
             || (!gst_caps_is_equal_fixed (demux->output_caps[i], srccaps))
             || demux->need_segment)) {
