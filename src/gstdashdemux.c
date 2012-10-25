@@ -1347,15 +1347,15 @@ gst_dash_demux_get_next_header (GstDashDemux * demux, guint stream_idx)
   return fragment;
 }
 
-static GstBufferListItem
+static gboolean
 gst_dash_demux_add_buffer_cb (GstBuffer ** buffer,
-    guint group, guint idx, gpointer user_data)
+    guint idx, gpointer user_data)
 {
   GstFragment *frag = GST_FRAGMENT (user_data);
   /* This buffer still belongs to the original fragment */
   /* so we need to increase refcount */
   gst_fragment_add_buffer (frag, gst_buffer_ref (*buffer));
-  return GST_BUFFER_LIST_CONTINUE;
+  return TRUE;
 }
 
 /* Since we cannot add headers after the chunk has been downloaded, we have to recreate a new fragment */
