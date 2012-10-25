@@ -983,13 +983,15 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
     GstFragment *fragment = g_list_nth_data (listfragment, i);
     stream = gst_mpdparser_get_active_stream_by_index (demux->client, i);
     if (demux->need_segment) {
+      GstSegment segment;
       GstClockTime start = fragment->start_time + demux->position_shift;
       /* And send a newsegment */
       GST_DEBUG_OBJECT (demux, "Sending new-segment. segment start:%"
           GST_TIME_FORMAT, GST_TIME_ARGS (start));
-      gst_pad_push_event (demux->srcpad[i],
-          gst_event_new_new_segment (FALSE, 1.0, GST_FORMAT_TIME,
-              start, GST_CLOCK_TIME_NONE, start));
+      gst_segment_init (&segment, GST_FORMAT_TIME);
+      segment.start = start;
+      segment.time = start;
+      gst_pad_push_event (demux->srcpad[i], gst_event_new_segment (&segment));
       demux->position_shift = 0;
     }
 
