@@ -201,7 +201,8 @@ static gboolean gst_dash_demux_sink_event (GstPad * pad, GstObject * parent,
     GstEvent * event);
 static gboolean gst_dash_demux_src_event (GstPad * pad, GstObject * parent,
     GstEvent * event);
-static gboolean gst_dash_demux_src_query (GstPad * pad, GstQuery * query);
+static gboolean gst_dash_demux_src_query (GstPad * pad, GstObject * parent,
+    GstQuery * query);
 static void gst_dash_demux_stream_loop (GstDashDemux * demux);
 static void gst_dash_demux_download_loop (GstDashDemux * demux);
 static void gst_dash_demux_stop (GstDashDemux * demux);
@@ -723,7 +724,7 @@ gst_dash_demux_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
 }
 
 static gboolean
-gst_dash_demux_src_query (GstPad * pad, GstQuery * query)
+gst_dash_demux_src_query (GstPad * pad, GstObject * parent, GstQuery * query)
 {
   GstDashDemux *dashdemux;
   gboolean ret = FALSE;
@@ -731,7 +732,7 @@ gst_dash_demux_src_query (GstPad * pad, GstQuery * query)
   if (query == NULL)
     return FALSE;
 
-  dashdemux = GST_DASH_DEMUX (gst_pad_get_element_private (pad));
+  dashdemux = GST_DASH_DEMUX (parent);
 
   switch (query->type) {
     case GST_QUERY_DURATION:{
