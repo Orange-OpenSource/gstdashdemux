@@ -799,7 +799,7 @@ gst_dash_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   if (demux->manifest == NULL)
     demux->manifest = buf;
   else
-    demux->manifest = gst_buffer_join (demux->manifest, buf);
+    demux->manifest = gst_buffer_append (demux->manifest, buf);
 
   gst_object_unref (demux);
 
