@@ -195,7 +195,8 @@ static GstStateChangeReturn
 gst_dash_demux_change_state (GstElement * element, GstStateChange transition);
 
 /* GstDashDemux */
-static GstFlowReturn gst_dash_demux_pad (GstPad * pad, GstBuffer * buf);
+static GstFlowReturn gst_dash_demux_chain (GstPad * pad, GstObject * parent,
+    GstBuffer * buf);
 static gboolean gst_dash_demux_sink_event (GstPad * pad, GstObject * parent,
     GstEvent * event);
 static gboolean gst_dash_demux_src_event (GstPad * pad, GstObject * parent,
@@ -333,7 +334,7 @@ gst_dash_demux_init (GstDashDemux * demux)
   /* sink pad */
   demux->sinkpad = gst_pad_new_from_static_template (&sinktemplate, "sink");
   gst_pad_set_chain_function (demux->sinkpad,
-      GST_DEBUG_FUNCPTR (gst_dash_demux_pad));
+      GST_DEBUG_FUNCPTR (gst_dash_demux_chain));
   gst_pad_set_event_function (demux->sinkpad,
       GST_DEBUG_FUNCPTR (gst_dash_demux_sink_event));
   gst_element_add_pad (GST_ELEMENT (demux), demux->sinkpad);
@@ -791,9 +792,9 @@ gst_dash_demux_src_query (GstPad * pad, GstQuery * query)
 }
 
 static GstFlowReturn
-gst_dash_demux_pad (GstPad * pad, GstBuffer * buf)
+gst_dash_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 {
-  GstDashDemux *demux = GST_DASH_DEMUX (gst_pad_get_parent (pad));
+  GstDashDemux *demux = GST_DASH_DEMUX (parent);
 
   if (demux->manifest == NULL)
     demux->manifest = buf;
