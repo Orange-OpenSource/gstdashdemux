@@ -146,6 +146,7 @@
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
 
 #include <string.h>
+#include <inttypes.h>
 #include <gst/base/gsttypefindhelper.h>
 #include "gstdashdemux.h"
 
@@ -937,7 +938,6 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   GstBufferList *buffer_list;
   guint nb_adaptation_set = 0;
   GstActiveStream *stream;
-  GstClockTime duration = 0;
 
   /* Wait until the next scheduled push downstream */
   if (g_cond_timed_wait (GST_TASK_GET_COND (demux->stream_task),
@@ -975,7 +975,6 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   for (i = 0; i < nb_adaptation_set; i++) {
     GstFragment *fragment = g_list_nth_data (listfragment, i);
     stream = gst_mpdparser_get_active_stream_by_index (demux->client, i);
-    duration = fragment->stop_time - fragment->start_time;
     if (demux->need_segment) {
       GstClockTime start = fragment->start_time + demux->position_shift;
       /* And send a newsegment */
@@ -1200,7 +1199,7 @@ gst_dash_demux_download_loop (GstDashDemux * demux)
         goto quit;
       }
     }
-    GST_INFO_OBJECT (demux, "Internal buffering : %d s",
+    GST_INFO_OBJECT (demux, "Internal buffering : %" PRIu64 " s",
         gst_dash_demux_get_buffering_time (demux) / GST_SECOND);
     demux->client->update_failed_count = 0;
   } else {
@@ -1582,7 +1581,7 @@ gst_dash_demux_get_next_fragment_set (GstDashDemux * demux)
   g_get_current_time (&now);
   diff = (GST_TIMEVAL_TO_TIME (now) - GST_TIMEVAL_TO_TIME (start));
   demux->dnl_rate = (size_buffer * 8) / ((double) diff / GST_SECOND);
-  GST_INFO_OBJECT (demux, "Download rate = %d Kbits/s (%d Ko in %.2f s)",
+  GST_INFO_OBJECT (demux, "Download rate = %" PRIu64 " Kbits/s (%" PRIu64 " Ko in %.2f s)",
       demux->dnl_rate / 1000, size_buffer / 1024, ((double) diff / GST_SECOND));
   return TRUE;
 }
