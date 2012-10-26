@@ -205,6 +205,7 @@ static void gst_dash_demux_stop (GstDashDemux * demux);
 static void gst_dash_demux_pause_stream_task (GstDashDemux * demux);
 static void gst_dash_demux_resume_stream_task (GstDashDemux * demux);
 static void gst_dash_demux_resume_download_task (GstDashDemux * demux);
+static gboolean gst_dash_demux_setup_all_streams (GstDashDemux *demux);
 static gboolean gst_dash_demux_select_representations (GstDashDemux * demux,
     guint64 current_bitrate);
 static gboolean gst_dash_demux_get_next_fragment_set (GstDashDemux * demux);
@@ -355,7 +356,6 @@ gst_dash_demux_init (GstDashDemux * demux, GstDashDemuxClass * klass)
   demux->stream_task =
       gst_task_create ((GstTaskFunction) gst_dash_demux_stream_loop, demux);
   gst_task_set_lock (demux->stream_task, &demux->stream_lock);
-  demux->stream_timed_lock = g_mutex_new ();
 }
 
 static void
@@ -481,11 +481,12 @@ gst_dash_demux_src_event (GstPad * pad, GstEvent * event)
       GstSeekFlags flags;
       GstSeekType start_type, stop_type;
       gint64 start, stop;
-      GList *walk;
+      GList *list;
       GstClockTime current_pos, target_pos;
-      gint current_sequence;
+      guint current_sequence, current_period;
       GstActiveStream *stream;
       GstMediaSegment *chunk;
+      GstStreamPeriod *period;
       guint nb_active_stream;
       guint stream_idx;
 
@@ -506,23 +507,45 @@ gst_dash_demux_src_event (GstPad * pad, GstEvent * event)
           GST_TIME_ARGS (stop));
 
       GST_MPD_CLIENT_LOCK (demux->client);
-      stream = gst_mpdparser_get_active_stream_by_index (demux->client, 0);
 
-      /* FIXME: support seeking across periods */
-      current_pos = 0;
+      /* select the requested Period in the Media Presentation */
       target_pos = (GstClockTime) start;
-      for (walk = stream->segments; walk; walk = walk->next) {
-        chunk = walk->data;
+      current_period = 0;
+      for (list = g_list_first (demux->client->periods); list; list = g_list_next (list)) {
+        period = list->data;
+        current_pos = period->start;
+        current_period = period->number;
+        if (current_pos <= target_pos
+            && target_pos < current_pos + period->duration) {
+          break;
+        }
+      }
+      if (list == NULL) {
+        GST_WARNING_OBJECT (demux, "Could not find seeked Period");
+        return FALSE;
+      }
+      if (current_period != gst_mpd_client_get_period_index (demux->client)) {
+        GST_DEBUG_OBJECT (demux, "Seeking to Period %d", current_period);
+        /* setup video, audio and subtitle streams, starting from the new Period */
+        if (!gst_mpd_client_set_period_index (demux->client, current_period) ||
+            !gst_dash_demux_setup_all_streams (demux))
+          return FALSE;
+      }
+
+      stream = gst_mpdparser_get_active_stream_by_index (demux->client, 0);
+      current_pos = 0;
+      for (list = g_list_first (stream->segments); list; list = g_list_next (list)) {
+        chunk = list->data;
+        current_pos = chunk->start_time;
         current_sequence = chunk->number;
         if (current_pos <= target_pos
             && target_pos < current_pos + chunk->duration) {
           break;
         }
-        current_pos += chunk->duration;
       }
       GST_MPD_CLIENT_UNLOCK (demux->client);
 
-      if (walk == NULL) {
+      if (list == NULL) {
         GST_WARNING_OBJECT (demux, "Could not find seeked fragment");
         return FALSE;
       }
@@ -553,16 +576,12 @@ gst_dash_demux_src_event (GstPad * pad, GstEvent * event)
 
       GST_MPD_CLIENT_LOCK (demux->client);
       GST_DEBUG_OBJECT (demux, "Seeking to sequence %d", current_sequence);
-      /* FIXME: support seeking across periods */
-      stream_idx = 0;
       /* Update the current sequence on all streams */
-      while (stream_idx < nb_active_stream) {
+      for (stream_idx = 0; stream_idx < nb_active_stream; stream_idx++) {
         stream =
             gst_mpdparser_get_active_stream_by_index (demux->client,
             stream_idx);
-        /* FIXME: we should'nt fiddle with stream internals like that */
-        stream->segment_idx = current_sequence;
-        stream_idx++;
+        gst_mpd_client_set_segment_index (stream, current_sequence);
       }
       /* Calculate offset in the next fragment */
       demux->position = gst_mpd_client_get_current_position (demux->client);
@@ -681,11 +700,12 @@ gst_dash_demux_sink_event (GstPad * pad, GstEvent * event)
             ("Incompatible manifest file."), (NULL));
         return FALSE;
       }
-      /* start from first Period */
-      demux->client->period_idx = 0;
-      /* setup video, audio and subtitle streams */
-      if (!gst_dash_demux_setup_all_streams (demux))
+
+      /* setup video, audio and subtitle streams, starting from first Period */
+      if (!gst_mpd_client_set_period_index (demux->client, 0) ||
+          !gst_dash_demux_setup_all_streams (demux))
         return FALSE;
+
       /* Send duration message */
       if (!gst_mpd_client_is_live (demux->client)) {
         GstClockTime duration = gst_mpd_client_get_media_presentation_duration (demux->client);
@@ -911,24 +931,39 @@ needs_pad_switch (GstDashDemux * demux, GList * fragment)
 }
 
 /* gst_dash_demux_stream_loop:
- * 
+ *
  * Loop for the "stream' task that pushes fragments to the src pads.
- * 
- * Startup: 
+ *
+ * Startup:
  * The task is started as soon as we have received the manifest and
  * waits for the first fragment to be downloaded and pushed in the
  * queue. Once this fragment has been pushed, the task pauses itself
  * until actual playback begins.
- * 
- * During playback:  
+ *
+ * During playback:
  * The task pushes fragments downstream at regular intervals based on
- * the fragment duration. If it detects a queue underrun, it sends
- * a buffering event to tell the main application to pause.
- * 
+ * the stop_time of the last fragment pushed. If it detects a queue
+ * underrun, it sends a buffering event to tell the main application
+ * to pause.
+ *
+ * When the pipeline is paused to rebuffer:
+ * The task is paused and no fragment is pushed downstream.
+ *
+ * When playback resume:
+ * After rebuffering, the pipeline returns in PLAYING state. The task
+ * is resumed and starts sending fragments downstream at regular
+ * intervals again.
+ *
+ * During seeking:
+ * The task is paused, the fragment queue is drained and the seek is
+ * performed, setting up the streaming from the new starting point.
+ * Finally, the base time of the next push is reset and the task is
+ * resumed again.
+ *
  * Teardown:
  * The task is stopped when we have reached the end of the manifest
  * and emptied our queue.
- * 
+ *
  */
 static void
 gst_dash_demux_stream_loop (GstDashDemux * demux)
@@ -936,14 +971,10 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   GList *listfragment;
   GstFlowReturn ret;
   GstBufferList *buffer_list;
-  guint nb_adaptation_set = 0;
+  guint nb_adaptation_set, i;
   GstActiveStream *stream;
-
-  /* Wait until the next scheduled push downstream */
-  if (g_cond_timed_wait (GST_TASK_GET_COND (demux->stream_task),
-          demux->stream_timed_lock, &demux->next_push)) {
-    goto quit;
-  }
+  GstClockTime start_time = GST_CLOCK_TIME_NONE, stop_time = GST_CLOCK_TIME_NONE;
+  gboolean switch_pad;
 
   if (g_queue_is_empty (demux->queue)) {
     if (demux->end_of_manifest)
@@ -963,18 +994,25 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
               100 * gst_dash_demux_get_buffering_ratio (demux)));
     }
   }
+
   listfragment = g_queue_pop_head (demux->queue);
   nb_adaptation_set = g_list_length (listfragment);
   /* Figure out if we need to create/switch pads */
-  gboolean switch_pad = needs_pad_switch (demux, listfragment);
+  switch_pad = needs_pad_switch (demux, listfragment);
   if (switch_pad) {
     switch_pads (demux, nb_adaptation_set);
     demux->need_segment = TRUE;
   }
-  guint i = 0;
+
   for (i = 0; i < nb_adaptation_set; i++) {
     GstFragment *fragment = g_list_nth_data (listfragment, i);
     stream = gst_mpdparser_get_active_stream_by_index (demux->client, i);
+    if (!GST_CLOCK_TIME_IS_VALID (start_time) || start_time < fragment->start_time) {
+      start_time = fragment->start_time;
+    }
+    if (!GST_CLOCK_TIME_IS_VALID (stop_time) || stop_time < fragment->stop_time) {
+      stop_time = fragment->stop_time;
+    }
     if (demux->need_segment) {
       GstClockTime start = fragment->start_time + demux->position_shift;
       /* And send a newsegment */
@@ -985,8 +1023,8 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
               start, GST_CLOCK_TIME_NONE, start));
       demux->position_shift = 0;
     }
-
-    GST_DEBUG_OBJECT (demux, "Pushing fragment #%d", fragment->index);
+    GST_DEBUG_OBJECT (demux, "Pushing fragment #%d timestamp %" GST_TIME_FORMAT,
+        fragment->index, GST_TIME_ARGS (fragment->start_time));
     buffer_list = gst_fragment_get_buffer_list (fragment);
     g_object_unref (fragment);
     ret = gst_pad_push_list (demux->srcpad[i], buffer_list);
@@ -995,14 +1033,31 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   }
   demux->need_segment = FALSE;
   g_list_free (listfragment);
+
+  /* Wait until the last fragment is being played before pushing the next one */
   if (GST_STATE (demux) == GST_STATE_PLAYING) {
-    /* Wait for the duration of a fragment before resuming this task */
-    g_get_current_time (&demux->next_push);
-    g_time_val_add (&demux->next_push,
-        gst_mpd_client_get_next_fragment_duration (demux->client)
-        / GST_SECOND * G_USEC_PER_SEC);
-    GST_DEBUG_OBJECT (demux, "Next push scheduled at %s",
-        g_time_val_to_iso8601 (&demux->next_push));
+    GstClock *clock = gst_element_get_clock (GST_ELEMENT (demux));
+    if (clock && GST_CLOCK_TIME_IS_VALID (start_time)) {
+      GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (demux));
+      GstClockTime running_time = gst_clock_get_time (clock) - base_time;
+      GstClockID id = gst_clock_new_single_shot_id (clock, base_time + start_time);
+      if (id == NULL) {
+        GST_WARNING_OBJECT (demux, "Could not create single shot id");
+        gst_object_unref (clock);
+        goto quit;
+      }
+      if (GST_CLOCK_TIME_IS_VALID (stop_time)) {
+        GST_DEBUG_OBJECT (demux, "Data available downstream %" GST_TIME_FORMAT,
+            GST_TIME_ARGS (stop_time - running_time));
+      }
+      GST_DEBUG_OBJECT (demux, "Next push scheduled in %" GST_TIME_FORMAT,
+          GST_TIME_ARGS (start_time - running_time));
+      if (gst_clock_id_wait (id, NULL) != GST_CLOCK_OK) {
+        GST_WARNING_OBJECT (demux, "Waiting did not return OK");
+      }
+      gst_clock_id_unref (id);
+      gst_object_unref (clock);
+    }
   } else {
     /* The pipeline is now set up, wait until playback begins */
     goto pause_streaming;
@@ -1174,8 +1229,9 @@ gst_dash_demux_download_loop (GstDashDemux * demux)
     while (!gst_dash_demux_get_next_fragment_set (demux)) {
       if (demux->end_of_period) {
         GST_INFO_OBJECT (demux, "Reached the end of the Period");
-        /* load the next Period in the Media Presentation */
-        if (!gst_mpd_client_get_next_period (demux->client) || !gst_dash_demux_setup_all_streams (demux)) {
+        /* setup video, audio and subtitle streams, starting from the next Period */
+        if (!gst_mpd_client_set_period_index (demux->client, gst_mpd_client_get_period_index (demux->client) + 1) ||
+            !gst_dash_demux_setup_all_streams (demux)) {
           GST_INFO_OBJECT (demux, "Reached the end of the manifest file");
           demux->end_of_manifest = TRUE;
           if (GST_STATE (demux) != GST_STATE_PLAYING) {
@@ -1241,7 +1297,6 @@ gst_dash_demux_pause_stream_task (GstDashDemux * demux)
 static void
 gst_dash_demux_resume_stream_task (GstDashDemux * demux)
 {
-  g_get_current_time (&demux->next_push);
   gst_task_start (demux->stream_task);
 }
 
@@ -1545,8 +1600,8 @@ gst_dash_demux_get_next_fragment_set (GstDashDemux * demux)
         gst_mpdparser_get_active_stream_by_index (demux->client, stream_idx);
     if (stream == NULL)
       return FALSE;
-    /* FIXME: we should'nt fiddle with stream internals like that */
-    download->index = stream->segment_idx -1;
+
+    download->index = gst_mpd_client_get_segment_index (stream) - 1;
 
     GstCaps *caps = gst_dash_demux_get_input_caps (demux, stream);
 
