@@ -310,13 +310,13 @@ gst_dash_demux_class_init (GstDashDemuxClass * klass)
   gstelement_class->change_state =
       GST_DEBUG_FUNCPTR (gst_dash_demux_change_state);
 
-  gst_gstelement_class_add_pad_template (gstelement_class,
+  gst_element_class_add_pad_template (gstelement_class,
       gst_static_pad_template_get (&srctemplate));
 
-  gst_gstelement_class_add_pad_template (gstelement_class,
+  gst_element_class_add_pad_template (gstelement_class,
       gst_static_pad_template_get (&sinktemplate));
 
-  gst_gstelement_class_set_details_simple (gstelement_class,
+  gst_element_class_set_details_simple (gstelement_class,
       "DASH Demuxer",
       "Codec/Demuxer",
       "Dynamic Adaptive Streaming over HTTP demuxer",
@@ -802,7 +802,7 @@ gst_dash_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   else
     demux->manifest = gst_buffer_append (demux->manifest, buf);
 
-  gst_object_unref (demux);
+//  gst_object_unref (demux);
 
   return GST_FLOW_OK;
 }
