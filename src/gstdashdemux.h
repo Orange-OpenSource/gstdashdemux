@@ -80,8 +80,6 @@ struct _GstDashDemux
   /* Streaming task */
   GstTask *stream_task;
   GStaticRecMutex stream_lock;
-  GMutex *stream_timed_lock;
-  GTimeVal next_push;           /* Time of the next push */
 
   /* Download task */
   GstTask *download_task;

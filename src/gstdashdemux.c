@@ -356,7 +356,6 @@ gst_dash_demux_init (GstDashDemux * demux, GstDashDemuxClass * klass)
   demux->stream_task =
       gst_task_create ((GstTaskFunction) gst_dash_demux_stream_loop, demux);
   gst_task_set_lock (demux->stream_task, &demux->stream_lock);
-  demux->stream_timed_lock = g_mutex_new ();
 }
 
 static void
@@ -932,24 +931,39 @@ needs_pad_switch (GstDashDemux * demux, GList * fragment)
 }
 
 /* gst_dash_demux_stream_loop:
- * 
+ *
  * Loop for the "stream' task that pushes fragments to the src pads.
- * 
- * Startup: 
+ *
+ * Startup:
  * The task is started as soon as we have received the manifest and
  * waits for the first fragment to be downloaded and pushed in the
  * queue. Once this fragment has been pushed, the task pauses itself
  * until actual playback begins.
- * 
- * During playback:  
+ *
+ * During playback:
  * The task pushes fragments downstream at regular intervals based on
- * the fragment duration. If it detects a queue underrun, it sends
- * a buffering event to tell the main application to pause.
- * 
+ * the stop_time of the last fragment pushed. If it detects a queue
+ * underrun, it sends a buffering event to tell the main application
+ * to pause.
+ *
+ * When the pipeline is paused to rebuffer:
+ * The task is paused and no fragment is pushed downstream.
+ *
+ * When playback resume:
+ * After rebuffering, the pipeline returns in PLAYING state. The task
+ * is resumed and starts sending fragments downstream at regular
+ * intervals again.
+ *
+ * During seeking:
+ * The task is paused, the fragment queue is drained and the seek is
+ * performed, setting up the streaming from the new starting point.
+ * Finally, the base time of the next push is reset and the task is
+ * resumed again.
+ *
  * Teardown:
  * The task is stopped when we have reached the end of the manifest
  * and emptied our queue.
- * 
+ *
  */
 static void
 gst_dash_demux_stream_loop (GstDashDemux * demux)
@@ -957,14 +971,10 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   GList *listfragment;
   GstFlowReturn ret;
   GstBufferList *buffer_list;
-  guint nb_adaptation_set = 0;
+  guint nb_adaptation_set, i;
   GstActiveStream *stream;
-
-  /* Wait until the next scheduled push downstream */
-  if (g_cond_timed_wait (GST_TASK_GET_COND (demux->stream_task),
-          demux->stream_timed_lock, &demux->next_push)) {
-    goto quit;
-  }
+  GstClockTime start_time = GST_CLOCK_TIME_NONE, stop_time = GST_CLOCK_TIME_NONE;
+  gboolean switch_pad;
 
   if (g_queue_is_empty (demux->queue)) {
     if (demux->end_of_manifest)
@@ -984,18 +994,25 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
               100 * gst_dash_demux_get_buffering_ratio (demux)));
     }
   }
+
   listfragment = g_queue_pop_head (demux->queue);
   nb_adaptation_set = g_list_length (listfragment);
   /* Figure out if we need to create/switch pads */
-  gboolean switch_pad = needs_pad_switch (demux, listfragment);
+  switch_pad = needs_pad_switch (demux, listfragment);
   if (switch_pad) {
     switch_pads (demux, nb_adaptation_set);
     demux->need_segment = TRUE;
   }
-  guint i = 0;
+
   for (i = 0; i < nb_adaptation_set; i++) {
     GstFragment *fragment = g_list_nth_data (listfragment, i);
     stream = gst_mpdparser_get_active_stream_by_index (demux->client, i);
+    if (!GST_CLOCK_TIME_IS_VALID (start_time) || start_time < fragment->start_time) {
+      start_time = fragment->start_time;
+    }
+    if (!GST_CLOCK_TIME_IS_VALID (stop_time) || stop_time < fragment->stop_time) {
+      stop_time = fragment->stop_time;
+    }
     if (demux->need_segment) {
       GstClockTime start = fragment->start_time + demux->position_shift;
       /* And send a newsegment */
@@ -1006,8 +1023,8 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
               start, GST_CLOCK_TIME_NONE, start));
       demux->position_shift = 0;
     }
-
-    GST_DEBUG_OBJECT (demux, "Pushing fragment #%d", fragment->index);
+    GST_DEBUG_OBJECT (demux, "Pushing fragment #%d timestamp %" GST_TIME_FORMAT,
+        fragment->index, GST_TIME_ARGS (fragment->start_time));
     buffer_list = gst_fragment_get_buffer_list (fragment);
     g_object_unref (fragment);
     ret = gst_pad_push_list (demux->srcpad[i], buffer_list);
@@ -1016,14 +1033,31 @@ gst_dash_demux_stream_loop (GstDashDemux * demux)
   }
   demux->need_segment = FALSE;
   g_list_free (listfragment);
+
+  /* Wait until the last fragment is being played before pushing the next one */
   if (GST_STATE (demux) == GST_STATE_PLAYING) {
-    /* Wait for the duration of a fragment before resuming this task */
-    g_get_current_time (&demux->next_push);
-    g_time_val_add (&demux->next_push,
-        gst_mpd_client_get_next_fragment_duration (demux->client)
-        / GST_SECOND * G_USEC_PER_SEC);
-    GST_DEBUG_OBJECT (demux, "Next push scheduled at %s",
-        g_time_val_to_iso8601 (&demux->next_push));
+    GstClock *clock = gst_element_get_clock (GST_ELEMENT (demux));
+    if (clock && GST_CLOCK_TIME_IS_VALID (start_time)) {
+      GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (demux));
+      GstClockTime running_time = gst_clock_get_time (clock) - base_time;
+      GstClockID id = gst_clock_new_single_shot_id (clock, base_time + start_time);
+      if (id == NULL) {
+        GST_WARNING_OBJECT (demux, "Could not create single shot id");
+        gst_object_unref (clock);
+        goto quit;
+      }
+      if (GST_CLOCK_TIME_IS_VALID (stop_time)) {
+        GST_DEBUG_OBJECT (demux, "Data available downstream %" GST_TIME_FORMAT,
+            GST_TIME_ARGS (stop_time - running_time));
+      }
+      GST_DEBUG_OBJECT (demux, "Next push scheduled in %" GST_TIME_FORMAT,
+          GST_TIME_ARGS (start_time - running_time));
+      if (gst_clock_id_wait (id, NULL) != GST_CLOCK_OK) {
+        GST_WARNING_OBJECT (demux, "Waiting did not return OK");
+      }
+      gst_clock_id_unref (id);
+      gst_object_unref (clock);
+    }
   } else {
     /* The pipeline is now set up, wait until playback begins */
     goto pause_streaming;
@@ -1263,7 +1297,6 @@ gst_dash_demux_pause_stream_task (GstDashDemux * demux)
 static void
 gst_dash_demux_resume_stream_task (GstDashDemux * demux)
 {
-  g_get_current_time (&demux->next_push);
   gst_task_start (demux->stream_task);
 }
 
