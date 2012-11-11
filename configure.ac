@@ -5,8 +5,8 @@ dnl TODO: fill in your package name and package version here
 AC_INIT([my-plugin-package],[0.10.0])
 
 dnl required versions of gstreamer and plugins-base
-GST_REQUIRED=0.10.16
-GSTPB_REQUIRED=0.10.16
+GST_REQUIRED=1.0.1
+GSTPB_REQUIRED=1.0.1
 
 AC_CONFIG_SRCDIR([src/gstplugin.c])
 AC_CONFIG_HEADERS([config.h])
@@ -28,8 +28,8 @@ AC_CHECK_PROG(HAVE_PKGCONFIG, pkg-config, [ ], [
   AC_MSG_ERROR([You need to have pkg-config installed!])
 ])
 
-GST_REQ=0.10.0
-GST_MAJORMINOR=0.10
+GST_REQ=1.0.1
+GST_MAJORMINOR=1.0
 
 dnl Check for the required version of GStreamer core (and gst-plugins-base)
 dnl This will export GST_CFLAGS and GST_LIBS variables for use in Makefile.am
@@ -45,10 +45,10 @@ dnl for libgstrtp-0.10: gstreamer-rtp-0.10 >= $GST_REQUIRED
 dnl for libgstrtsp-0.10: gstreamer-rtsp-0.10 >= $GST_REQUIRED
 dnl etc.
 PKG_CHECK_MODULES(GST, [
-  gstreamer-0.10 >= $GST_REQUIRED
-  gstreamer-base-0.10 >= $GST_REQUIRED
-  gstreamer-controller-0.10 >= $GST_REQUIRED
-  gstreamer-app-0.10 >= $GST_REQUIRED
+  gstreamer-1.0 >= $GST_REQUIRED
+  gstreamer-base-1.0 >= $GST_REQUIRED
+  gstreamer-controller-1.0 >= $GST_REQUIRED
+  gstreamer-app-1.0 >= $GST_REQUIRED
   libxml-2.0
   glib-2.0
 ], [
@@ -77,9 +77,9 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([ ], [ ])], [
 
 dnl set the plugindir where plugins should be installed (for src/Makefile.am)
 if test "x${prefix}" = "x$HOME"; then
-  plugindir="$HOME/.gstreamer-0.10/plugins"
+  plugindir="$HOME/.gstreamer-1.0/plugins"
 else
-  plugindir="\$(libdir)/gstreamer-0.10"
+  plugindir="\$(libdir)/gstreamer-1.0"
 fi
 AC_SUBST(plugindir)
 

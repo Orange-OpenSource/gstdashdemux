@@ -60,34 +60,34 @@ struct _GstDashDemux
 {
   GstElement parent;
   GstPad *sinkpad;
-  GstPad *srcpad[MAX_LANGUAGES];   /*Video/Audio/Application src pad*/
-  GstCaps *output_caps[MAX_LANGUAGES]; /*Video/Audio/Application output buf caps*/
-  GstCaps *input_caps[MAX_LANGUAGES]; /*Video/Audio/Application input caps*/
+  GstPad *srcpad[MAX_LANGUAGES];        /*Video/Audio/Application src pad */
+  GstCaps *output_caps[MAX_LANGUAGES];  /*Video/Audio/Application output buf caps */
+  GstCaps *input_caps[MAX_LANGUAGES];   /*Video/Audio/Application input caps */
 
-  GstBuffer *playlist;
+  GstBuffer *manifest;
   GstUriDownloader *downloader;
   GstMpdClient *client;         /* MPD client */
-  GQueue *queue;                /*Video/Audio/Application List of fragment storing the fetched fragments */
-  gboolean end_of_playlist;
+  GQueue *queue;                /* Video/Audio/Application List of fragment storing the fetched fragments */
+  gboolean end_of_period;
+  gboolean end_of_manifest;
 
   /* Properties */
-  GstClockTime min_buffering_time;    /* Minimum buffering time accumulated before playback */
-  GstClockTime max_buffering_time;    /* Maximum buffering time accumulated during playback */
-  gfloat bandwidth_usage;             /* Percentage of the available bandwidth to use       */
-  guint64 max_bitrate;              /* max of bitrate supported by target decoder         */
+  GstClockTime min_buffering_time;      /* Minimum buffering time accumulated before playback */
+  GstClockTime max_buffering_time;      /* Maximum buffering time accumulated during playback */
+  gfloat bandwidth_usage;       /* Percentage of the available bandwidth to use       */
+  guint64 max_bitrate;          /* max of bitrate supported by target decoder         */
 
   /* Streaming task */
   GstTask *stream_task;
-  GStaticRecMutex stream_lock;
-  gboolean stop_stream_task;
-  GMutex *stream_timed_lock;
-  GTimeVal next_stream;         /* Time of the next push */
+  GRecMutex stream_lock;
+  GMutex stream_timed_lock;
+  GTimeVal next_push;           /* Time of the next push */
 
   /* Download task */
   GstTask *download_task;
-  GStaticRecMutex download_lock;
+  GRecMutex download_lock;
   gboolean cancelled;
-  GMutex *download_timed_lock;
+  GMutex download_timed_lock;
   GTimeVal next_download;       /* Time of the next download */
 
   /* Position in the stream */

@@ -60,8 +60,7 @@ struct _GstFragmentClass
 
 GType gst_fragment_get_type (void);
 
-guint64 gst_fragment_get_buffer_size (GstFragment * fragment);
-GstBufferList * gst_fragment_get_buffer_list (GstFragment *fragment);
+GstBuffer * gst_fragment_get_buffer (GstFragment *fragment);
 void gst_fragment_set_caps (GstFragment * fragment, GstCaps * caps);
 GstCaps * gst_fragment_get_caps (GstFragment * fragment);
 gboolean gst_fragment_add_buffer (GstFragment *fragment, GstBuffer *buffer);
