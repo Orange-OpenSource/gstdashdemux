@@ -242,9 +242,12 @@ gst_uri_downloader_stop (GstUriDownloader * downloader)
     gst_object_unref (pad);
   }
   /* set the element state to NULL */
-  gst_element_set_state (downloader->priv->urisrc, GST_STATE_NULL);
-  gst_element_get_state (downloader->priv->urisrc, NULL, NULL,
-      GST_CLOCK_TIME_NONE);
+  if (downloader->priv->urisrc)
+  {
+    gst_element_set_state (downloader->priv->urisrc, GST_STATE_NULL);
+    gst_element_get_state (downloader->priv->urisrc, NULL, NULL,
+        GST_CLOCK_TIME_NONE);
+  }
 }
 
 void
