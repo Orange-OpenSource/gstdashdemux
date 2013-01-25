@@ -21,6 +21,7 @@
 
 #include <glib.h>
 #include <gst/base/gsttypefindhelper.h>
+#include "glibcompat.h"
 #include "gstfragmented.h"
 #include "gstfragment.h"
 
@@ -46,7 +47,7 @@ struct _GstFragmentPrivate
   guint64 size;
   GstBufferListIterator *buffer_iterator;
   GstCaps *caps;
-  GMutex lock;
+  G_MUTEX lock;
 };
 
 G_DEFINE_TYPE (GstFragment, gst_fragment, G_TYPE_OBJECT);
@@ -159,7 +160,7 @@ gst_fragment_init (GstFragment * fragment)
 
   fragment->priv = priv = GST_FRAGMENT_GET_PRIVATE (fragment);
 
-  g_mutex_init (&fragment->priv->lock);
+  G_MUTEX_INIT (fragment->priv->lock);
   priv->buffer_list = gst_buffer_list_new ();
   priv->size = 0;
   priv->buffer_iterator = gst_buffer_list_iterate (priv->buffer_list);
@@ -185,7 +186,7 @@ gst_fragment_finalize (GObject * gobject)
   GstFragment *fragment = GST_FRAGMENT (gobject);
 
   g_free (fragment->name);
-  g_mutex_clear (&fragment->priv->lock);
+  G_MUTEX_CLEAR (fragment->priv->lock);
 
   G_OBJECT_CLASS (gst_fragment_parent_class)->finalize (gobject);
 }
@@ -227,9 +228,9 @@ gst_fragment_set_caps (GstFragment * fragment, GstCaps * caps)
 {
   g_return_if_fail (fragment != NULL);
 
-  g_mutex_lock (&fragment->priv->lock);
+  G_MUTEX_LOCK (fragment->priv->lock);
   gst_caps_replace (&fragment->priv->caps, caps);
-  g_mutex_unlock (&fragment->priv->lock);
+  G_MUTEX_UNLOCK (fragment->priv->lock);
 }
 
 GstCaps *
@@ -240,13 +241,13 @@ gst_fragment_get_caps (GstFragment * fragment)
   if (!fragment->completed)
     return NULL;
 
-  g_mutex_lock (&fragment->priv->lock);
+  G_MUTEX_LOCK (fragment->priv->lock);
   if (fragment->priv->caps == NULL) {
     GstBuffer *buf = gst_buffer_list_get (fragment->priv->buffer_list, 0, 0);
     fragment->priv->caps = gst_type_find_helper_for_buffer (NULL, buf, NULL);
   }
   gst_caps_ref (fragment->priv->caps);
-  g_mutex_unlock (&fragment->priv->lock);
+  G_MUTEX_UNLOCK (fragment->priv->lock);
 
   return fragment->priv->caps;
 }
