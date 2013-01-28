@@ -25,6 +25,7 @@
  */
 
 #include <string.h>
+#include <libxml/tree.h>
 #include "gstfragmented.h"
 #include "gstmpdparser.h"
 
