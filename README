@@ -2,6 +2,9 @@ dashdemux
 
 GStreamer plugin allowing the playback of MPEG DASH streams.
 
+This repository is still there for historical reasons, but the plugin has now been included into gst-plugins-bad:
+https://bugzilla.gnome.org/show_bug.cgi?id=690555
+
 The plugin is based on some basic objects defined in the GStreamer HLS
 Demux plugin from the gst-plugins-bad module.
 
